@@ -4,6 +4,13 @@ Play custom MP3/WAV/OGG sounds on race events — and a **personal sound for
 every pilot** (e.g. their name callout), played when that pilot records a
 lap, scores the holeshot, finishes or wins.
 
+The plugin speaks **composed phrases** built from your sound files: pilot
+name + lap number on every pass, "next group" announcements with each
+pilot's name and channel, countdowns to a scheduled race start and to the
+end of a timed race. A **Run-page panel** shows a status lamp, the phrase
+being spoken with a mini player (progress bar, play / pause / stop), a live
+queue feed and a playback-speed slider.
+
 Sounds are uploaded straight from the RotorHazard **Settings** page and play
 in **every connected browser**. A standalone player page turns any phone,
 tablet or PC on the network into a dedicated speaker, and playback on the
@@ -40,6 +47,39 @@ No extra Python dependencies.
   hear "VOLT!" instead of the plain lap beep); turn *Pilot sound replaces
   event sound* off to hear both.
 
+- **Composed phrases** *(v1.1)* — phrases are queued and spoken one after
+  another, several sound files back to back:
+  - **Pilot + lap number** — "*VOLT … lap … 3*": pilot sound, optional
+    word "lap" (`ann_lap_word`) and a number sound (`num_3`). Option *Say
+    lap number with pilot name*.
+  - **Next group** — on heat selection (and from the 📢 group button):
+    "next group" prefix, then each seated pilot's sound followed by their
+    channel callout (`chan_r1`, `chan_f4`, …). Option *Announce next group
+    on heat change*.
+  - **Countdown to a scheduled start** — every full minute ("*2 …
+    minutes-to-start*" = `num_2` + `ann_cd_minutes`), then 30 / 10 / 5
+    seconds (`ann_cd_30/10/5`). Option *Countdown to scheduled race start*.
+  - **Countdown to the end of a timed race** — minutes remaining
+    (`num_N` + `ann_end_minutes`) and 30 / 10 / 5 s (`ann_end_30/10/5`).
+    Option *Countdown to end of a timed race*.
+  - **Manual announcements** — "arm your quads" (`ann_arm`) and "next
+    group" buttons right on the Run-page panel.
+
+  Countdown marks are **priority** phrases: they jump the queue and
+  interrupt whatever is being spoken, so "5 seconds" never arrives late.
+
+- **Run-page panel** *(v1.1)* — lives in the shared plugin dock above the
+  pilot table (next to Gate Walkthrough Calibration / Claude Auto
+  Marshalling), collapsed to a slim bar until something plays:
+  - **status lamp** — green: the plugin voices events; amber: enabled but
+    this browser still needs one click before audio may play; gray: off;
+  - **mini player** — the phrase being spoken, progress bar, elapsed /
+    total time, ⏵ ⏸ ⏹ (controls act on **every** connected player);
+  - **live feed** — phrases waiting in the queue; a spoken phrase
+    disappears and the next one moves onto the player bar;
+  - **speed slider** — 0.5×–2× playback rate for all players (persisted);
+  - **SFX ON/OFF** master switch and the announcement buttons.
+
 - **Where it plays**
   - in every open RotorHazard page (Run, Settings, Marshal, Format);
   - on any device that opens `http://<timer-ip>/sound_fx/player` — a
@@ -51,6 +91,10 @@ No extra Python dependencies.
 
 - **Manager UI** — upload / replace / preview (▶) / play-everywhere (📢) /
   remove (✕) each sound from the *Sound FX* panel on the Settings page.
+  Five sections: event sounds, pilot sounds, announcements & countdown
+  pieces, numbers (for laps and minutes — add rows for any number up to
+  999) and channel callouts (R1–R8 / F1–F8 by default, channels of the
+  current frequency set are marked ●, any band+channel can be added).
   Files up to 20 MB; `.mp3`, `.wav`, `.ogg`, `.m4a`.
 
 - **Housekeeping** — a pilot's sound is deleted automatically when the pilot

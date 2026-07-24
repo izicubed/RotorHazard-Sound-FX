@@ -1,3 +1,170 @@
+/* Sound FX — Run-page panel + manager (Settings page).
+   Panel: dark scheme by default; light via .rh-sfx-light (set from the
+   plugin Theme option, incl. auto = browser/OS preference). */
+
+[id^="ui-custom-sound_fx_load_"] { display: none !important; }
+
+/* ------------------------------------------------------------- palettes */
+
+#rh-sfx {
+	--sfx-bg: #14171d;
+	--sfx-border: #2b313b;
+	--sfx-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+	--sfx-fg: #eaeef4;
+	--sfx-muted: #7d8798;
+	--sfx-head-bg: #1b2028;
+	--sfx-edge: #262b34;
+	--sfx-spark: #5fd4c8;
+	--sfx-accent: #8fb7ff;
+	--sfx-btn-bg: #2a3346;
+	--sfx-btn-hover: #34405a;
+	--sfx-btn-border: #3a4560;
+	--sfx-btn-fg: #eaeef4;
+	--sfx-track: #262d38;
+	--sfx-bar: #5fd4c8;
+	--sfx-lamp-on: #3ddc84;
+	--sfx-lamp-locked: #f5c145;
+	--sfx-lamp-off: #55606e;
+	--sfx-on-bg: #16341f;  --sfx-on-fg: #6fe89a;  --sfx-on-border: #2f8049;
+	--sfx-off-bg: #3a1e20; --sfx-off-fg: #ff9d9d; --sfx-off-border: #5a2e30;
+	--sfx-prio: #f5c145;
+}
+
+#rh-sfx.rh-sfx-light {
+	--sfx-bg: #ffffff;
+	--sfx-border: #dfe3ea;
+	--sfx-shadow: 0 4px 14px rgba(30, 40, 60, 0.14);
+	--sfx-fg: #1c2330;
+	--sfx-muted: #6b7381;
+	--sfx-head-bg: #f2f4f8;
+	--sfx-edge: #e4e8ee;
+	--sfx-spark: #0d8a7d;
+	--sfx-accent: #3b6fd4;
+	--sfx-btn-bg: #eef2f9;
+	--sfx-btn-hover: #dfe7f5;
+	--sfx-btn-border: #c3cede;
+	--sfx-btn-fg: #1c2330;
+	--sfx-track: #e4e8ee;
+	--sfx-bar: #0d8a7d;
+	--sfx-lamp-on: #1e9e57;
+	--sfx-lamp-locked: #b98a00;
+	--sfx-lamp-off: #9aa3ae;
+	--sfx-on-bg: #d9f2e2;  --sfx-on-fg: #177a45;  --sfx-on-border: #9bd7b4;
+	--sfx-off-bg: #fdecec; --sfx-off-fg: #b52f2f; --sfx-off-border: #ecc2c2;
+	--sfx-prio: #8f6400;
+}
+
+/* ------------------------------------------------------------ structure */
+
+/* Shared dock for our plugin panels above the pilot table (created by
+   whichever of our plugins loads first; the same rules ship with each of
+   them). Panels sit side by side, stretch to equal height, and wrap onto a
+   new row when the screen is too narrow. */
+#rh-plugin-dock {
+	display: flex; flex-wrap: wrap; gap: 8px;
+	align-items: stretch; justify-content: center;
+	margin: 7px 0; width: 100%;
+}
+#rh-plugin-dock #rh-sfx { margin: 0; order: 3; flex: 0 1 auto;
+	display: flex; flex-direction: column; }
+#rh-plugin-dock #rh-sfx .rh-sfx-body { flex: 1 1 auto; }
+/* a COLLAPSED panel must stay a slim bar — never stretch to the height of
+   an expanded neighbour (rules cover all our plugins, whichever CSS wins) */
+#rh-plugin-dock > #rh-gc.rh-gc-collapsed,
+#rh-plugin-dock > #rh-cm.rh-cm-collapsed,
+#rh-plugin-dock > #rh-sfx.rh-sfx-collapsed { align-self: flex-start; }
+
+#rh-sfx {
+	display: block; width: fit-content; min-width: 300px; max-width: 100%;
+	margin: 7px auto;
+	box-sizing: border-box; background: var(--sfx-bg);
+	border: 1px solid var(--sfx-border);
+	border-radius: 8px; box-shadow: var(--sfx-shadow);
+	font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	color: var(--sfx-fg); overflow: hidden;
+}
+
+#rh-sfx .rh-sfx-head {
+	display: flex; align-items: center; gap: 6px; padding: 5px 9px;
+	background: var(--sfx-head-bg); border-bottom: 1px solid var(--sfx-edge);
+	cursor: pointer; user-select: none;
+	min-height: 18px; box-sizing: content-box;
+}
+#rh-sfx.rh-sfx-collapsed .rh-sfx-body { display: none; }
+#rh-sfx.rh-sfx-collapsed .rh-sfx-head { border-bottom: none; }
+#rh-sfx .rh-sfx-chev { font-size: 9px; color: var(--sfx-muted); }
+#rh-sfx .rh-sfx-title { font-size: 10px; font-weight: 700;
+	letter-spacing: 0.03em; text-transform: uppercase; flex: 0 0 auto; }
+#rh-sfx .rh-sfx-spark { color: var(--sfx-spark); margin-right: 3px; }
+#rh-sfx .rh-sfx-headsum { display: flex; align-items: center; gap: 5px;
+	flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
+#rh-sfx .rh-sfx-sumnow { font-size: 10px; font-weight: 700;
+	color: var(--sfx-accent); max-width: 220px; overflow: hidden;
+	text-overflow: ellipsis; white-space: nowrap; }
+#rh-sfx .rh-sfx-summut { font-size: 10px; color: var(--sfx-muted); }
+
+/* the lamp */
+#rh-sfx .rh-sfx-lamp { width: 9px; height: 9px; border-radius: 50%;
+	flex: 0 0 auto; cursor: help; }
+#rh-sfx .rh-sfx-lamp-on { background: var(--sfx-lamp-on);
+	box-shadow: 0 0 6px var(--sfx-lamp-on); }
+#rh-sfx .rh-sfx-lamp-locked { background: var(--sfx-lamp-locked);
+	animation: rh-sfx-pulse 1.2s ease-in-out infinite; }
+#rh-sfx .rh-sfx-lamp-off { background: var(--sfx-lamp-off); }
+@keyframes rh-sfx-pulse { 50% { opacity: 0.35; } }
+
+/* mini player */
+#rh-sfx .rh-sfx-player { display: flex; align-items: center; gap: 6px;
+	padding: 7px 9px 2px; }
+#rh-sfx .rh-sfx-btn {
+	font-size: 11px; font-weight: 700; padding: 3px 8px; cursor: pointer;
+	background: var(--sfx-btn-bg); color: var(--sfx-btn-fg);
+	border: 1px solid var(--sfx-btn-border); border-radius: 6px;
+	line-height: 1.4; white-space: nowrap;
+}
+#rh-sfx .rh-sfx-btn:hover:not(:disabled) { background: var(--sfx-btn-hover); }
+#rh-sfx .rh-sfx-btn:disabled { opacity: 0.45; cursor: default; }
+#rh-sfx .rh-sfx-btn.rh-sfx-active { border-color: var(--sfx-accent);
+	color: var(--sfx-accent); }
+#rh-sfx .rh-sfx-now { font-size: 11px; font-weight: 700; flex: 1 1 auto;
+	min-width: 80px; max-width: 260px; overflow: hidden;
+	text-overflow: ellipsis; white-space: nowrap; }
+#rh-sfx .rh-sfx-now.rh-sfx-idle { color: var(--sfx-muted); font-weight: 400; }
+#rh-sfx .rh-sfx-time { font-size: 9px; color: var(--sfx-muted);
+	font-variant-numeric: tabular-nums; }
+
+#rh-sfx .rh-sfx-track { height: 3px; background: var(--sfx-track);
+	margin: 6px 9px 0; border-radius: 2px; overflow: hidden; }
+#rh-sfx .rh-sfx-bar { height: 100%; width: 0; background: var(--sfx-bar);
+	transition: width 0.15s linear; }
+
+/* second control row: speed + announcements + master switch */
+#rh-sfx .rh-sfx-ctl2 { display: flex; align-items: center; gap: 6px;
+	padding: 7px 9px 2px; flex-wrap: wrap; }
+#rh-sfx .rh-sfx-rlbl { font-size: 10px; color: var(--sfx-muted); }
+#rh-sfx .rh-sfx-rate { width: 90px; accent-color: var(--sfx-bar); }
+#rh-sfx .rh-sfx-rval { font-size: 10px; font-weight: 700;
+	color: var(--sfx-accent); font-variant-numeric: tabular-nums;
+	min-width: 34px; }
+#rh-sfx .rh-sfx-flex { flex: 1 1 auto; }
+#rh-sfx .rh-sfx-en-on { background: var(--sfx-on-bg); color: var(--sfx-on-fg);
+	border-color: var(--sfx-on-border); }
+#rh-sfx .rh-sfx-en-off { background: var(--sfx-off-bg); color: var(--sfx-off-fg);
+	border-color: var(--sfx-off-border); }
+
+/* live feed of queued phrases */
+#rh-sfx .rh-sfx-feed { padding: 5px 9px 7px; }
+#rh-sfx .rh-sfx-feed:empty { padding: 0 0 7px; }
+#rh-sfx .rh-sfx-qrow { display: flex; align-items: center; gap: 6px;
+	font-size: 10px; color: var(--sfx-muted); padding: 1px 0;
+	overflow: hidden; }
+#rh-sfx .rh-sfx-qdot { flex: 0 0 auto; }
+#rh-sfx .rh-sfx-qlbl { overflow: hidden; text-overflow: ellipsis;
+	white-space: nowrap; }
+#rh-sfx .rh-sfx-qprio { color: var(--sfx-prio); font-weight: 700; }
+#rh-sfx .rh-sfx-qmore { font-size: 9px; color: var(--sfx-muted);
+	padding-top: 2px; }
+
 /* Sound FX manager (Settings page) */
 #sfx-manager { margin-top: 10px; font-size: 0.95em; }
 #sfx-manager .sfx-h { margin: 14px 0 6px; }
@@ -55,6 +222,12 @@
 #sfx-manager .sfx-btn:hover { background: rgba(128, 128, 128, 0.3); }
 #sfx-manager .sfx-up { background: rgba(47, 129, 247, 0.25); }
 #sfx-manager .sfx-del:hover { background: rgba(220, 60, 60, 0.4); }
+#sfx-manager .sfx-addrow { justify-content: flex-start; }
+#sfx-manager .sfx-addkey {
+	width: 130px; padding: 3px 8px; font: inherit; font-size: 0.9em;
+	border: 1px solid rgba(128, 128, 128, 0.5); border-radius: 6px;
+	background: rgba(128, 128, 128, 0.1); color: inherit;
+}
 @media (max-width: 640px) {
 	#sfx-manager .sfx-row { flex-wrap: wrap; }
 	#sfx-manager .sfx-file { flex-basis: 100%; order: 3; }

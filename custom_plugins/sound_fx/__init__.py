@@ -12,7 +12,8 @@ playback on the server's own audio output can be enabled as well.
 
 from eventmanager import Evt
 from .sound_fx import (
-    SoundFxController, EVENT_SOUNDS, EV_GET_STATE, EV_DELETE, EV_TEST,
+    SoundFxController, EVENT_SOUNDS,
+    EV_GET_STATE, EV_DELETE, EV_TEST, EV_CTL, EV_SET_ENABLED, EV_ANNOUNCE,
 )
 
 
@@ -30,6 +31,23 @@ def initialize(rhapi):
                     name='sound_fx_win')
     rhapi.events.on(Evt.RACE_PILOT_DONE, controller.on_pilot_done,
                     name='sound_fx_pilot_done')
+
+    # countdown to a scheduled start / to the end of a timed race, and the
+    # next-group announcement when a heat is selected
+    rhapi.events.on(Evt.RACE_SCHEDULE, controller.on_race_schedule,
+                    name='sound_fx_cd_schedule')
+    rhapi.events.on(Evt.RACE_SCHEDULE_CANCEL, controller.on_race_schedule_cancel,
+                    name='sound_fx_cd_cancel')
+    rhapi.events.on(Evt.RACE_STAGE, controller.on_race_stage,
+                    name='sound_fx_cd_stage')
+    rhapi.events.on(Evt.RACE_START, controller.on_race_start,
+                    name='sound_fx_cd_start')
+    rhapi.events.on(Evt.RACE_STOP, controller.on_race_stop,
+                    name='sound_fx_cd_stop')
+    rhapi.events.on(Evt.RACE_FINISH, controller.on_race_finish,
+                    name='sound_fx_cd_finish')
+    rhapi.events.on(Evt.HEAT_SET, controller.on_heat_set,
+                    name='sound_fx_next_group')
 
     # plain event sounds (lap/holeshot/win/pilot_done are handled above)
     _special = ('lap', 'holeshot', 'win', 'pilot_done')
@@ -52,3 +70,6 @@ def initialize(rhapi):
     rhapi.ui.socket_listen(EV_GET_STATE, controller.on_get_state)
     rhapi.ui.socket_listen(EV_DELETE, controller.on_delete)
     rhapi.ui.socket_listen(EV_TEST, controller.on_test)
+    rhapi.ui.socket_listen(EV_CTL, controller.on_ctl)
+    rhapi.ui.socket_listen(EV_SET_ENABLED, controller.on_set_enabled)
+    rhapi.ui.socket_listen(EV_ANNOUNCE, controller.on_announce)
