@@ -147,6 +147,23 @@
 	color: var(--sfx-accent); font-variant-numeric: tabular-nums;
 	min-width: 34px; }
 #rh-sfx .rh-sfx-flex { flex: 1 1 auto; }
+
+/* announcement buttons live on their own wrapping row; `contain` keeps the
+   row's intrinsic width at zero so many buttons can never widen the
+   fit-content panel — they wrap onto new lines instead */
+#rh-sfx .rh-sfx-anns { display: flex; flex-wrap: wrap; gap: 6px;
+	padding: 7px 9px 2px; contain: inline-size; }
+#rh-sfx .rh-sfx-custom { display: contents; }
+
+/* speaker toggle in the header (visible even when collapsed) */
+#rh-sfx .rh-sfx-mute { font-size: 11px; line-height: 1.3; padding: 1px 5px;
+	cursor: pointer; background: transparent; border: 1px solid transparent;
+	border-radius: 5px; color: var(--sfx-fg); }
+#rh-sfx .rh-sfx-mute:hover { border-color: var(--sfx-btn-border);
+	background: var(--sfx-btn-bg); }
+#rh-sfx .rh-sfx-mute-off { background: var(--sfx-off-bg);
+	border-color: var(--sfx-off-border); }
+#rh-sfx .rh-sfx-mute-idle { opacity: 0.6; }
 #rh-sfx .rh-sfx-en-on { background: var(--sfx-on-bg); color: var(--sfx-on-fg);
 	border-color: var(--sfx-on-border); }
 #rh-sfx .rh-sfx-en-off { background: var(--sfx-off-bg); color: var(--sfx-off-fg);
@@ -228,6 +245,8 @@
 	border: 1px solid rgba(128, 128, 128, 0.5); border-radius: 6px;
 	background: rgba(128, 128, 128, 0.1); color: inherit;
 }
+#sfx-manager .sfx-lblwrap { flex: 1 1 25%; min-width: 0; }
+#sfx-manager .sfx-lbl { width: 100%; box-sizing: border-box; }
 @media (max-width: 640px) {
 	#sfx-manager .sfx-row { flex-wrap: wrap; }
 	#sfx-manager .sfx-file { flex-basis: 100%; order: 3; }

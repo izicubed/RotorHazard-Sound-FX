@@ -32,6 +32,87 @@
 	var unlocked = false;
 	var standalone = !!document.getElementById('arm');
 
+	// ---------------------------------------------- one audible tab per browser
+	// Every open RotorHazard page is a player, so two tabs used to play the
+	// same sound twice with a few tens of ms offset — a hollow "echo". Only
+	// the RUN page and the standalone /sound_fx/player are ELIGIBLE to make
+	// noise at all; among eligible tabs of one browser a single LEADER is
+	// elected via localStorage, the rest (and every other page) run the same
+	// queue muted, so the feed and progress stay in sync everywhere. The
+	// standalone player page outranks Run tabs. A 🔊/🔇 button additionally
+	// mutes the whole device (persisted per browser).
+
+	var TAB_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
+	var isLeader = false;
+	var LEADER_KEY = 'rh_sfx_leader';
+	var MUTE_KEY = 'rh_sfx_mute';
+	var myPrio = standalone ? 2 : 1;
+
+	function isMuted() {
+		try { return localStorage.getItem(MUTE_KEY) === '1'; }
+		catch (e) { return false; }
+	}
+	function setMuted(m) {
+		try { localStorage.setItem(MUTE_KEY, m ? '1' : '0'); } catch (e) {}
+		applyAudible();
+		renderPanel();
+	}
+	function eligible() { return standalone || onRunPage(); }
+	function audible() { return isLeader && !isMuted(); }
+
+	function readLeader() {
+		try { return JSON.parse(localStorage.getItem(LEADER_KEY) || 'null'); }
+		catch (e) { return null; }
+	}
+	function writeLeader() {
+		try {
+			localStorage.setItem(LEADER_KEY,
+				JSON.stringify({ id: TAB_ID, ts: Date.now(), p: myPrio }));
+		} catch (e) {}
+	}
+	function electionTick() {
+		var was = isLeader;
+		var rec = readLeader();
+		var now = Date.now();
+		var fresh = rec && (now - rec.ts) < 3000;
+		if (!eligible()) {
+			// settings / marshal / format pages never make noise — release
+			// the leadership if this tab somehow holds it
+			isLeader = false;
+			if (rec && rec.id === TAB_ID) {
+				try { localStorage.removeItem(LEADER_KEY); } catch (e) {}
+			}
+		} else if (rec && rec.id === TAB_ID) {
+			writeLeader(); isLeader = true;
+		} else if (fresh && rec.p >= myPrio) {
+			isLeader = false;              // someone else (or a speaker page) leads
+		} else if (!fresh || rec.p < myPrio) {
+			// stale record, or we outrank the current leader (speaker page)
+			if (unlocked || standalone || !rec || (now - rec.ts) > 8000) {
+				writeLeader(); isLeader = true;
+			} else { isLeader = false; }   // prefer a tab that may already play
+		}
+		if (was !== isLeader) { applyAudible(); renderPanel(); }
+	}
+	setInterval(electionTick, 1000);
+	electionTick();
+	window.addEventListener('beforeunload', function () {
+		var rec = readLeader();
+		if (rec && rec.id === TAB_ID) {
+			try { localStorage.removeItem(LEADER_KEY); } catch (e) {}
+		}
+	});
+	window.addEventListener('storage', function (e) {
+		if (e && e.key === MUTE_KEY) { applyAudible(); renderPanel(); }
+	});
+
+	function applyAudible() {
+		if (current) {
+			var a = current.audios[current.idx];
+			if (a) { a.muted = !audible(); }
+		}
+	}
+
 	// ------------------------------------------------------------ the queue
 
 	var queue = [];        // pending phrases
@@ -81,6 +162,7 @@
 		a.volume = (typeof cur.item.volume === 'number') ?
 			Math.max(0, Math.min(1, cur.item.volume)) : 1;
 		a.playbackRate = rate;
+		a.muted = !audible();
 		a.onended = function () {
 			if (current !== cur) { return; }
 			cur.idx += 1;
@@ -89,8 +171,20 @@
 		a.onerror = a.onended;   // a broken file must not stall the queue
 		var p = a.play();
 		if (p && p.catch) {
-			p.then(function () { unlocked = true; noteArmed(true); renderPanel(); })
-			 .catch(function () { noteArmed(false); renderPanel(); });
+			p.then(function () {
+				if (!a.muted) { unlocked = true; noteArmed(true); }
+				renderPanel();
+			}).catch(function () {
+				if (!a.muted) {
+					// audible autoplay blocked — keep the queue moving muted,
+					// the first click/tap unmutes (see unlock())
+					a.muted = true;
+					var p2 = a.play();
+					if (p2 && p2.catch) { p2.catch(function () {}); }
+					noteArmed(false);
+				}
+				renderPanel();
+			});
 		}
 	}
 
@@ -171,6 +265,7 @@
 		if (unlocked) { return; }
 		unlocked = true;
 		noteArmed(true);
+		applyAudible();   // unmute the phrase that started while locked
 		if (current) {
 			var a = current.audios[current.idx];
 			if (a && a.paused && !paused) {
@@ -308,7 +403,8 @@
 			'<span class="rh-sfx-chev">▸</span>' +
 			'<span class="rh-sfx-lamp" title=""></span>' +
 			'<div class="rh-sfx-title"><span class="rh-sfx-spark">♫</span> Sound FX</div>' +
-			'<div class="rh-sfx-headsum"></div></div>' +
+			'<div class="rh-sfx-headsum"></div>' +
+			'<button class="rh-sfx-mute"></button></div>' +
 			'<div class="rh-sfx-body">' +
 			'<div class="rh-sfx-player">' +
 			'<button class="rh-sfx-btn rh-sfx-bplay" title="Play / resume">⏵</button>' +
@@ -322,15 +418,21 @@
 			'<input class="rh-sfx-rate" type="range" min="50" max="200" step="5">' +
 			'<span class="rh-sfx-rval"></span>' +
 			'<span class="rh-sfx-flex"></span>' +
+			'<button class="rh-sfx-btn rh-sfx-benable"></button></div>' +
+			'<div class="rh-sfx-anns">' +
 			'<button class="rh-sfx-btn rh-sfx-bann" data-key="arm" title="Play the ‘arm your quads’ announcement">📢 arm</button>' +
 			'<button class="rh-sfx-btn rh-sfx-bann" data-key="next_group" title="Announce the current heat: each pilot + channel">📢 group</button>' +
-			'<button class="rh-sfx-btn rh-sfx-benable"></button></div>' +
+			'<span class="rh-sfx-custom"></span></div>' +
 			'<div class="rh-sfx-feed"></div></div>';
 
 		panel.querySelector('.rh-sfx-head').addEventListener('click', function (e) {
 			if (e.target.closest('button, input')) { return; }
 			userOpen = !panelOpen();
 			renderPanel();
+		});
+		panel.querySelector('.rh-sfx-mute').addEventListener('click', function (e) {
+			e.stopPropagation();
+			setMuted(!isMuted());
 		});
 		panel.querySelector('.rh-sfx-bplay').addEventListener('click', function () {
 			socket.emit('sfx_ctl', { action: 'resume' });
@@ -423,7 +525,7 @@
 		if (!state.enabled) {
 			lampCls += 'rh-sfx-lamp-off';
 			lamp.title = 'Sound FX is OFF — RotorHazard default sounds only';
-		} else if (!unlocked) {
+		} else if (!unlocked && audible()) {
 			lampCls += 'rh-sfx-lamp-locked';
 			lamp.title = 'Sound FX is on, but this browser needs one ' +
 				'click/tap anywhere on the page before it may play audio';
@@ -433,6 +535,23 @@
 				'standard sounds — mute RH voice callouts in Audio Control)';
 		}
 		lamp.className = lampCls;
+
+		// speaker button: which tab/device actually makes noise
+		var mute = panel.querySelector('.rh-sfx-mute');
+		if (isMuted()) {
+			mute.textContent = '🔇';
+			mute.className = 'rh-sfx-mute rh-sfx-mute-off';
+			mute.title = 'Muted on this device — click to unmute';
+		} else if (audible()) {
+			mute.textContent = '🔊';
+			mute.className = 'rh-sfx-mute';
+			mute.title = 'This tab plays the sounds — click to mute this device';
+		} else {
+			mute.textContent = '🔈';
+			mute.className = 'rh-sfx-mute rh-sfx-mute-idle';
+			mute.title = 'Another tab of this browser plays the sounds ' +
+				'(only one tab is audible to avoid echo) — click to mute this device';
+		}
 
 		// header summary
 		var sum = panel.querySelector('.rh-sfx-headsum');
@@ -478,6 +597,19 @@
 				hasAnn(key);
 			b.disabled = !ok;
 			if (!ok) { b.title = 'Upload the sound in Settings → Sound FX first'; }
+		});
+
+		// one broadcast button per uploaded custom announcement (say_<name>)
+		var custom = panel.querySelector('.rh-sfx-custom');
+		custom.innerHTML = '';
+		(state.customs || []).forEach(function (c) {
+			if (!c.file) { return; }
+			var b = el('button', 'rh-sfx-btn rh-sfx-bsay', '📢 ' + (c.label || c.key));
+			b.title = 'Play the "' + (c.label || c.key) + '" announcement on every player';
+			b.addEventListener('click', function () {
+				socket.emit('sfx_announce', { key: 'say:' + c.key });
+			});
+			custom.appendChild(b);
 		});
 
 		var en = panel.querySelector('.rh-sfx-benable');
@@ -530,7 +662,7 @@
 		});
 	}
 
-	function uploadRow(kind, key, label, sub, item) {
+	function uploadRow(kind, key, label, sub, item, extraFields) {
 		var row = el('div', 'sfx-row');
 		var name = el('div', 'sfx-name');
 		name.appendChild(el('span', 'sfx-label', label));
@@ -553,6 +685,7 @@
 			fd.append('kind', kind);
 			fd.append('key', key);
 			fd.append('file', input.files[0]);
+			if (extraFields) { extraFields(fd); }
 			upLabel.textContent = '…';
 			fetch('/sound_fx/upload', { method: 'POST', body: fd })
 				.then(function (r) { return r.json(); })
@@ -572,10 +705,25 @@
 			var test = el('button', 'sfx-btn', '▶');
 			test.title = 'Preview here';
 			test.addEventListener('click', function () {
-				enqueue({ label: item.file, volume: state ? state.volume : 1,
-					parts: [{ url: item.url, file: item.file }] });
+				// direct playback: previews must be audible on the Settings
+				// page too, where the queue player is always muted
+				stopPreview();
+				var a = new Audio(item.url);
+				a.volume = state ? state.volume : 1;
+				a.playbackRate = rate;
+				a.onended = function () {
+					if (previewAudio === a) { previewAudio = null; }
+				};
+				previewAudio = a;
+				var p = a.play();
+				if (p && p.catch) { p.catch(function () {}); }
 			});
 			actions.appendChild(test);
+
+			var stop = el('button', 'sfx-btn', '⏹');
+			stop.title = 'Stop the preview';
+			stop.addEventListener('click', stopPreview);
+			actions.appendChild(stop);
 
 			var bcast = el('button', 'sfx-btn', '📢');
 			bcast.title = 'Play on every connected player';
@@ -597,8 +745,18 @@
 		return row;
 	}
 
-	// extra number/channel rows added by hand this session (until uploaded)
-	var extraNums = [], extraChans = [];
+	// extra number/channel/custom rows added by hand this session (until uploaded)
+	var extraNums = [], extraChans = [], extraSays = [];   // extraSays: {key, label}
+
+	// the one manager preview playing right now (▶/⏹ buttons in the rows)
+	var previewAudio = null;
+
+	function stopPreview() {
+		if (previewAudio) {
+			try { previewAudio.pause(); } catch (e) {}
+			previewAudio = null;
+		}
+	}
 
 	function addKeyRow(box, placeholder, onAdd) {
 		var row = el('div', 'sfx-row sfx-addrow');
@@ -712,6 +870,58 @@
 			return true;
 		});
 		mount.appendChild(cBox);
+
+		mount.appendChild(el('h3', 'sfx-h', 'Custom announcements'));
+		mount.appendChild(el('div', 'sfx-hint',
+			'Any extra announcement ("clear the track", "lunch break", …). ' +
+			'Every uploaded sound gets its own 📢 button on the Run-page ' +
+			'panel; Label is the button text (any language).'));
+		var sBox = el('div', 'sfx-box');
+		var sayItems = (state.customs || []).slice();
+		var haveS = {};
+		sayItems.forEach(function (s) { haveS[s.key] = true; });
+		extraSays.forEach(function (x) {
+			if (!haveS[x.key]) {
+				sayItems.push({ key: x.key, label: x.label, file: null, url: null,
+					_pending: true });
+			}
+		});
+		sayItems.sort(function (a, b) { return a.key < b.key ? -1 : 1; });
+		sayItems.forEach(function (s) {
+			var lblInput = document.createElement('input');
+			lblInput.type = 'text';
+			lblInput.className = 'sfx-addkey sfx-lbl';
+			lblInput.placeholder = 'Label on the Run panel';
+			lblInput.value = s.label || '';
+			lblInput.title = 'How this announcement is labeled on the ' +
+				'Run-page button and in the queue feed';
+			if (!s._pending) {
+				lblInput.addEventListener('change', function () {
+					socket.emit('sfx_say_label',
+						{ key: s.key, label: lblInput.value });
+				});
+			} else {
+				lblInput.addEventListener('change', function () {
+					extraSays.forEach(function (x) {
+						if (x.key === s.key) { x.label = lblInput.value; }
+					});
+				});
+			}
+			var row = uploadRow('say', s.key, s.key, 'say_' + s.key, s,
+				function (fd) { fd.append('label', lblInput.value); });
+			var wrap = el('div', 'sfx-lblwrap');
+			wrap.appendChild(lblInput);
+			row.insertBefore(wrap, row.children[1]);
+			sBox.appendChild(row);
+		});
+		addKeyRow(sBox, 'name, e.g. clear_track', function (v) {
+			v = v.toLowerCase().replace(/\s+/g, '_');
+			if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(v)) { return false; }
+			var exists = extraSays.some(function (x) { return x.key === v; });
+			if (!exists) { extraSays.push({ key: v, label: '' }); }
+			return true;
+		});
+		mount.appendChild(sBox);
 
 		mount.appendChild(el('div', 'sfx-hint',
 			'Sounds play in every open RotorHazard page. For a dedicated ' +

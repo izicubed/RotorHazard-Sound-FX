@@ -64,6 +64,12 @@ No extra Python dependencies.
     Option *Countdown to end of a timed race*.
   - **Manual announcements** — "arm your quads" (`ann_arm`) and "next
     group" buttons right on the Run-page panel.
+  - **Custom announcements** *(v1.1.1)* — upload any sound as
+    `say_<name>` ("clear the track", "lunch break", …) in the *Custom
+    announcements* manager section and it gets its own 📢 button on the
+    Run-page panel. The **Label** field sets the button text (any
+    language); without it the name is used (`_` → space). Announcement
+    buttons sit on their own wrapping row, so any number of them fits.
 
   Countdown marks are **priority** phrases: they jump the queue and
   interrupt whatever is being spoken, so "5 seconds" never arrives late.
@@ -81,7 +87,13 @@ No extra Python dependencies.
   - **SFX ON/OFF** master switch and the announcement buttons.
 
 - **Where it plays**
-  - in every open RotorHazard page (Run, Settings, Marshal, Format);
+  - only the **Run page** (and the standalone player below) is audible;
+    Settings / Marshal / Format follow the phrase queue silently. With
+    several Run tabs in one browser a single leader tab is elected, so
+    duplicate tabs never produce a phasey "echo". A 🔊/🔇 button on the
+    Run-page panel mutes the whole device (e.g. the laptop, when a
+    dedicated speaker is connected). The ▶ preview buttons in the manager
+    stay audible everywhere;
   - on any device that opens `http://<timer-ip>/sound_fx/player` — a
     minimal page with a single *Tap to enable audio* button, made to be a
     dedicated speaker client;
@@ -91,11 +103,12 @@ No extra Python dependencies.
 
 - **Manager UI** — upload / replace / preview (▶) / play-everywhere (📢) /
   remove (✕) each sound from the *Sound FX* panel on the Settings page.
-  Five sections: event sounds, pilot sounds, announcements & countdown
+  Six sections: event sounds, pilot sounds, announcements & countdown
   pieces, numbers (for laps and minutes — add rows for any number up to
-  999) and channel callouts (R1–R8 / F1–F8 by default, channels of the
-  current frequency set are marked ●, any band+channel can be added).
-  Files up to 20 MB; `.mp3`, `.wav`, `.ogg`, `.m4a`.
+  999), channel callouts (R1–R8 / F1–F8 by default, channels of the
+  current frequency set are marked ●, any band+channel can be added) and
+  custom announcements (each uploaded sound gets a 📢 button on the
+  Run-page panel). Files up to 20 MB; `.mp3`, `.wav`, `.ogg`, `.m4a`.
 
 - **Housekeeping** — a pilot's sound is deleted automatically when the pilot
   is deleted; global volume option (0–100); master enable switch.

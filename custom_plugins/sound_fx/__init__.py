@@ -14,6 +14,7 @@ from eventmanager import Evt
 from .sound_fx import (
     SoundFxController, EVENT_SOUNDS,
     EV_GET_STATE, EV_DELETE, EV_TEST, EV_CTL, EV_SET_ENABLED, EV_ANNOUNCE,
+    EV_SAY_LABEL,
 )
 
 
@@ -73,3 +74,4 @@ def initialize(rhapi):
     rhapi.ui.socket_listen(EV_CTL, controller.on_ctl)
     rhapi.ui.socket_listen(EV_SET_ENABLED, controller.on_set_enabled)
     rhapi.ui.socket_listen(EV_ANNOUNCE, controller.on_announce)
+    rhapi.ui.socket_listen(EV_SAY_LABEL, controller.on_say_label)

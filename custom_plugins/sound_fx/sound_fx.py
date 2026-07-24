@@ -37,6 +37,7 @@ EV_TEST = 'sfx_test'
 EV_CTL = 'sfx_ctl'                  # player control from any panel
 EV_SET_ENABLED = 'sfx_set_enabled'
 EV_ANNOUNCE = 'sfx_announce'        # manual announcement buttons
+EV_SAY_LABEL = 'sfx_say_label'      # edit a custom announcement's label
 MSG_STATE = 'sfx_state'
 MSG_PLAY = 'sfx_play'               # legacy single-file message (still sent)
 MSG_SPEAK = 'sfx_speak'             # queued phrase: list of files + label
@@ -57,6 +58,7 @@ OPT_CD_START = 'sfx_cd_start'            # countdown to scheduled race start
 OPT_CD_END = 'sfx_cd_end'                # countdown to end of a timed race
 OPT_NEXT_GROUP = 'sfx_next_group'        # announce pilots+channels on heat set
 OPT_THEME = 'sfx_theme'
+OPT_SAY_LABELS = 'sfx_say_labels'        # JSON {slug: display label}
 
 ALLOWED_EXTS = ('.mp3', '.wav', '.ogg', '.m4a')
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -110,6 +112,10 @@ DEFAULT_NUM_KEYS = list(range(1, 11))
 DEFAULT_CHAN_KEYS = ['r{}'.format(i) for i in range(1, 9)] + \
                     ['f{}'.format(i) for i in range(1, 9)]
 CHAN_KEY_RE = re.compile(r'^[a-z][0-9]{1,2}$')
+
+# custom announcements (`say_<slug>.<ext>`): each uploaded file gets its own
+# broadcast button on the Run-page panel, labeled by the slug
+SAY_KEY_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,31}$')
 
 # countdown second-marks (before start / before time expiry) -> ann file key
 START_MARKS = ((30, 'cd_30'), (10, 'cd_10'), (5, 'cd_5'))
@@ -272,7 +278,8 @@ class SoundFxController:
 
     def _scan(self):
         '''Return {kind: {key: fname}} for every sound kind on disk.'''
-        out = {'event': {}, 'pilot': {}, 'ann': {}, 'num': {}, 'chan': {}}
+        out = {'event': {}, 'pilot': {}, 'ann': {}, 'num': {}, 'chan': {},
+               'say': {}}
         try:
             names = os.listdir(self._sounds_dir)
         except OSError:
@@ -297,6 +304,8 @@ class SoundFxController:
                     pass
             elif stem.startswith('chan_'):
                 out['chan'][stem[5:].lower()] = fname
+            elif stem.startswith('say_'):
+                out['say'][stem[4:].lower()] = fname
         return out
 
     def _remove_sound(self, kind, key):
@@ -318,7 +327,7 @@ class SoundFxController:
         upload = request.files['file']
         kind = request.form.get('kind', '')
         key = str(request.form.get('key', '')).strip().lower()
-        if kind not in ('event', 'pilot', 'ann', 'num', 'chan'):
+        if kind not in ('event', 'pilot', 'ann', 'num', 'chan', 'say'):
             return jsonify(ok=False, error='bad kind'), 400
         if kind == 'event':
             if key not in [k for k, _e, _l in EVENT_SOUNDS]:
@@ -329,6 +338,10 @@ class SoundFxController:
         elif kind == 'chan':
             if not CHAN_KEY_RE.match(key):
                 return jsonify(ok=False, error='bad channel (e.g. r1, f4)'), 400
+        elif kind == 'say':
+            if not SAY_KEY_RE.match(key):
+                return jsonify(ok=False, error='bad name: use letters, digits, '
+                               '_ or - (max 32 chars)'), 400
         else:  # pilot / num
             try:
                 num = int(key)
@@ -355,6 +368,8 @@ class SoundFxController:
         except OSError:
             logger.exception('Sound FX: failed saving upload %s', path)
             return jsonify(ok=False, error='save failed'), 500
+        if kind == 'say' and request.form.get('label') is not None:
+            self._set_say_label(key, request.form.get('label'))
         logger.info('Sound FX: uploaded %s', os.path.basename(path))
         self._broadcast_state()
         return jsonify(ok=True, file=os.path.basename(path))
@@ -420,6 +435,9 @@ class SoundFxController:
         chan_keys = sorted(set(DEFAULT_CHAN_KEYS) | set(files['chan'].keys())
                            | set(seat_chans.values()))
         channels = [self._item(c, files['chan'].get(c)) for c in chan_keys]
+        say_labels = self._say_labels()
+        customs = [self._item(k, files['say'][k], self._say_label(k, say_labels))
+                   for k in sorted(files['say'].keys())]
         return {
             'enabled': self._opt_bool(OPT_ENABLED, True),
             'volume': self._volume(),
@@ -434,8 +452,35 @@ class SoundFxController:
             'announces': announces,
             'numbers': numbers,
             'channels': channels,
+            'customs': customs,
             'active_channels': sorted(set(seat_chans.values())),
         }
+
+    def _say_labels(self):
+        try:
+            d = json.loads(self._opt(OPT_SAY_LABELS, '') or '{}')
+            return d if isinstance(d, dict) else {}
+        except Exception:
+            return {}
+
+    def _say_label(self, slug, labels=None):
+        if labels is None:
+            labels = self._say_labels()
+        label = str(labels.get(slug) or '').strip()
+        return label or slug.replace('_', ' ').replace('-', ' ')
+
+    def _set_say_label(self, slug, label):
+        labels = self._say_labels()
+        label = str(label or '').strip()[:60]
+        if label:
+            labels[slug] = label
+        else:
+            labels.pop(slug, None)
+        try:
+            self._rhapi.db.option_set(
+                OPT_SAY_LABELS, json.dumps(labels, ensure_ascii=False))
+        except Exception:
+            logger.exception('Sound FX: cannot store say labels')
 
     def _broadcast_state(self):
         try:
@@ -452,8 +497,11 @@ class SoundFxController:
         data = data or {}
         kind = data.get('kind')
         key = data.get('key')
-        if kind in ('event', 'pilot', 'ann', 'num', 'chan') and key is not None:
+        if kind in ('event', 'pilot', 'ann', 'num', 'chan', 'say') and \
+                key is not None:
             self._remove_sound(kind, str(key).lower())
+            if kind == 'say':
+                self._set_say_label(str(key).lower(), '')
             self._broadcast_state()
 
     def on_test(self, data=None):
@@ -462,7 +510,7 @@ class SoundFxController:
         key = data.get('key')
         files = self._scan()
         fname = None
-        if kind in ('event', 'ann', 'chan'):
+        if kind in ('event', 'ann', 'chan', 'say'):
             fname = files.get(kind, {}).get(str(key).lower())
         elif kind in ('pilot', 'num'):
             try:
@@ -502,7 +550,7 @@ class SoundFxController:
     def on_announce(self, data=None):
         '''Manual announcement buttons on the Run-page panel.'''
         data = data or {}
-        key = data.get('key')
+        key = str(data.get('key') or '')
         if key == 'arm':
             files = self._scan()
             fname = files['ann'].get('arm')
@@ -510,6 +558,20 @@ class SoundFxController:
                 self._speak([fname], 'Arm your quads', force=True)
         elif key == 'next_group':
             self._announce_next_group(force=True)
+        elif key.startswith('say:'):
+            slug = key[4:].lower()
+            files = self._scan()
+            fname = files['say'].get(slug)
+            if fname:
+                self._speak([fname], self._say_label(slug), force=True)
+
+    def on_say_label(self, data=None):
+        '''Edit the display label of a custom announcement.'''
+        data = data or {}
+        key = str(data.get('key') or '').lower()
+        if SAY_KEY_RE.match(key):
+            self._set_say_label(key, data.get('label'))
+            self._broadcast_state()
 
     def _broadcast(self, msg, payload):
         try:
