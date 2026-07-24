@@ -1,0 +1,12 @@
+{
+    "domain": "sound_fx",
+    "name": "Sound FX",
+    "author": "izicubed",
+    "author_uri": "https://github.com/izicubed",
+    "description": "Play custom MP3/WAV/OGG sound files on race events: staging, start, finish, stop, winner declared, every lap, holeshot, pilot finished, race saved and more. Upload a personal sound for each pilot (e.g. their name callout) and it is played when that pilot records a lap, scores the holeshot, finishes or wins — each trigger individually selectable. Sounds are uploaded from the Settings page and played in every connected browser; a standalone /sound_fx/player page lets any phone or tablet on the network act as a dedicated speaker. Optional playback on the server's own audio output (mpg123/ffplay). No extra dependencies.",
+    "documentation_uri": "https://github.com/izicubed/RotorHazard-Sound-FX",
+    "license": "RotorHazard",
+    "license_uri": "https://github.com/RotorHazard/RotorHazard/blob/main/LICENSE",
+    "version": "1.0.0",
+    "required_rhapi_version": "1.0"
+}

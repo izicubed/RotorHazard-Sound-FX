@@ -1,0 +1,61 @@
+/* Sound FX manager (Settings page) */
+#sfx-manager { margin-top: 10px; font-size: 0.95em; }
+#sfx-manager .sfx-h { margin: 14px 0 6px; }
+#sfx-manager .sfx-hint { opacity: 0.75; font-size: 0.9em; margin: 4px 0 8px; }
+#sfx-manager .sfx-warn {
+	background: rgba(255, 170, 0, 0.15);
+	border: 1px solid rgba(255, 170, 0, 0.5);
+	border-radius: 6px;
+	padding: 6px 10px;
+	margin-bottom: 8px;
+}
+#sfx-manager .sfx-box {
+	border: 1px solid rgba(128, 128, 128, 0.35);
+	border-radius: 8px;
+	overflow: hidden;
+}
+#sfx-manager .sfx-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 10px;
+}
+#sfx-manager .sfx-row:nth-child(even) { background: rgba(128, 128, 128, 0.08); }
+#sfx-manager .sfx-name {
+	flex: 1 1 40%;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+#sfx-manager .sfx-label { font-weight: 600; }
+#sfx-manager .sfx-sub { opacity: 0.65; font-size: 0.85em; }
+#sfx-manager .sfx-file {
+	flex: 1 1 35%;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: monospace;
+	font-size: 0.85em;
+}
+#sfx-manager .sfx-none { opacity: 0.4; }
+#sfx-manager .sfx-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+#sfx-manager .sfx-btn {
+	display: inline-block;
+	padding: 3px 10px;
+	border-radius: 6px;
+	border: 1px solid rgba(128, 128, 128, 0.5);
+	background: rgba(128, 128, 128, 0.15);
+	color: inherit;
+	font: inherit;
+	font-size: 0.9em;
+	cursor: pointer;
+	line-height: 1.5;
+}
+#sfx-manager .sfx-btn:hover { background: rgba(128, 128, 128, 0.3); }
+#sfx-manager .sfx-up { background: rgba(47, 129, 247, 0.25); }
+#sfx-manager .sfx-del:hover { background: rgba(220, 60, 60, 0.4); }
+@media (max-width: 640px) {
+	#sfx-manager .sfx-row { flex-wrap: wrap; }
+	#sfx-manager .sfx-file { flex-basis: 100%; order: 3; }
+}

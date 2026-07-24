@@ -1,0 +1,486 @@
+'''
+Sound FX controller for RotorHazard.
+
+Plays uploaded MP3/WAV/OGG files on race events and per-pilot sounds
+(e.g. a pilot-name callout) when that pilot records a lap, scores the
+holeshot, finishes or wins. Files are uploaded from a panel on the
+Settings page, stored under the server data dir and streamed to every
+connected browser over socket.io; an optional standalone player page
+turns any device on the network into a dedicated speaker, and playback
+on the server's own audio output (mpg123/ffplay/...) can be enabled too.
+'''
+
+import json
+import logging
+import os
+import shutil
+import subprocess
+import time
+
+from flask import Blueprint, request, jsonify, send_from_directory, Response
+
+from eventmanager import Evt
+from RHUI import UIField, UIFieldType
+
+logger = logging.getLogger(__name__)
+
+PLUGIN_ID = 'sound_fx'
+
+# socket.io message names
+EV_GET_STATE = 'sfx_get_state'
+EV_DELETE = 'sfx_delete'
+EV_TEST = 'sfx_test'
+MSG_STATE = 'sfx_state'
+MSG_PLAY = 'sfx_play'
+
+# options
+OPT_ENABLED = 'sfx_enabled'
+OPT_VOLUME = 'sfx_volume'
+OPT_PILOT_ON_LAP = 'sfx_pilot_on_lap'
+OPT_PILOT_ON_HOLESHOT = 'sfx_pilot_on_holeshot'
+OPT_PILOT_ON_DONE = 'sfx_pilot_on_done'
+OPT_PILOT_ON_WIN = 'sfx_pilot_on_win'
+OPT_PILOT_REPLACES = 'sfx_pilot_replaces'
+OPT_SERVER_PLAYBACK = 'sfx_server_playback'
+
+ALLOWED_EXTS = ('.mp3', '.wav', '.ogg', '.m4a')
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
+# Event catalogue: key (used in file names) -> (Evt name, label shown in UI).
+# RACE_LAP_RECORDED is routed internally to 'holeshot' for lap 0, so the
+# holeshot entry below has no Evt of its own.
+EVENT_SOUNDS = [
+    ('schedule',   Evt.RACE_SCHEDULE,   'Race scheduled'),
+    ('stage',      Evt.RACE_STAGE,      'Race staging (arm)'),
+    ('start',      Evt.RACE_START,      'Race start'),
+    ('finish',     Evt.RACE_FINISH,     'Race finish (time expired)'),
+    ('stop',       Evt.RACE_STOP,       'Race stop'),
+    ('win',        Evt.RACE_WIN,        'Winner declared'),
+    ('holeshot',   None,                'Holeshot (first pass, any pilot)'),
+    ('lap',        Evt.RACE_LAP_RECORDED, 'Lap recorded (any pilot)'),
+    ('pilot_done', Evt.RACE_PILOT_DONE, 'Pilot finished'),
+    ('laps_save',  Evt.LAPS_SAVE,       'Race saved'),
+    ('rounds_complete', Evt.ROUNDS_COMPLETE, 'Rounds complete'),
+]
+
+# which event keys may be voiced with the per-pilot sound, and the option
+# that enables each of them
+PILOT_TRIGGER_OPTS = {
+    'lap': OPT_PILOT_ON_LAP,
+    'holeshot': OPT_PILOT_ON_HOLESHOT,
+    'pilot_done': OPT_PILOT_ON_DONE,
+    'win': OPT_PILOT_ON_WIN,
+}
+
+
+class SoundFxController:
+    def __init__(self, rhapi):
+        self._rhapi = rhapi
+        self._last_play = {}    # (kind, key) -> monotonic ts, debounce
+        self._sounds_dir = self._resolve_sounds_dir()
+
+    # ------------------------------------------------------------------ setup
+
+    def _resolve_sounds_dir(self):
+        base = None
+        try:
+            base = self._rhapi.server.data_dir
+        except Exception:
+            base = None
+        if base:
+            path = os.path.join(base, 'plugin_data', PLUGIN_ID)
+        else:
+            path = os.path.join(os.path.dirname(__file__), 'sounds')
+        try:
+            os.makedirs(path, exist_ok=True)
+        except Exception:
+            logger.exception('Sound FX: cannot create sounds dir %s', path)
+        return path
+
+    def register_blueprint(self):
+        bp = Blueprint(PLUGIN_ID, __name__, static_folder='static',
+                       static_url_path='/sound_fx/static')
+
+        @bp.route('/sound_fx/audio/<path:fname>')
+        def sfx_audio(fname):
+            return send_from_directory(self._sounds_dir, fname,
+                                       max_age=0, conditional=True)
+
+        @bp.route('/sound_fx/upload', methods=['POST'])
+        def sfx_upload():
+            return self._handle_upload()
+
+        @bp.route('/sound_fx/player')
+        def sfx_player():
+            return Response(PLAYER_PAGE, mimetype='text/html')
+
+        self._rhapi.ui.blueprint_add(bp)
+
+    def on_startup(self, _args=None):
+        self._register_ui()
+
+    def _register_ui(self):
+        ui = self._rhapi.ui
+        fields = self._rhapi.fields
+        ui.register_panel(PLUGIN_ID, 'Sound FX', 'settings', order=0)
+
+        def opt(name, label, ftype, value, desc):
+            fields.register_option(
+                UIField(name=name, label=label, field_type=ftype,
+                        value=value, desc=desc), PLUGIN_ID)
+
+        opt(OPT_ENABLED, 'Enable sounds', UIFieldType.CHECKBOX, True,
+            'Master switch. When off, no sounds are sent to any player.')
+        opt(OPT_VOLUME, 'Volume (0-100)', UIFieldType.BASIC_INT, 100,
+            'Playback volume applied in every browser player.')
+        opt(OPT_PILOT_ON_LAP, 'Pilot sound on every lap',
+            UIFieldType.CHECKBOX, True,
+            'Play the pilot\'s personal sound each time they record a lap.')
+        opt(OPT_PILOT_ON_HOLESHOT, 'Pilot sound on holeshot',
+            UIFieldType.CHECKBOX, True,
+            'Play the pilot\'s personal sound on their first gate pass.')
+        opt(OPT_PILOT_ON_DONE, 'Pilot sound when pilot finishes',
+            UIFieldType.CHECKBOX, False,
+            'Play the pilot\'s personal sound when they complete the race.')
+        opt(OPT_PILOT_ON_WIN, 'Pilot sound for the winner',
+            UIFieldType.CHECKBOX, True,
+            'Play the winner\'s personal sound when the race winner is declared.')
+        opt(OPT_PILOT_REPLACES, 'Pilot sound replaces event sound',
+            UIFieldType.CHECKBOX, True,
+            'When a pilot has a personal sound, play it INSTEAD of the generic '
+            'event sound. Off = play both.')
+        opt(OPT_SERVER_PLAYBACK, 'Also play on server audio output',
+            UIFieldType.CHECKBOX, False,
+            'Play sounds on the timer\'s own audio jack/HDMI using mpg123, '
+            'ffplay, mpg321, cvlc or omxplayer (first one found).')
+
+        # sound manager UI + browser player, injected into pages
+        loader = ('<div id="sfx-manager"></div>'
+                  '<script src="/sound_fx/static/sound_fx.js"></script>')
+        ui.register_markdown(PLUGIN_ID, 'sfx_manager_boot', loader)
+        player_only = '<script src="/sound_fx/static/sound_fx.js"></script>'
+        for page in ('run', 'marshal', 'format'):
+            panel = 'sound_fx_load_' + page
+            ui.register_panel(panel, 'Sound FX player', page, order=0)
+            ui.register_markdown(panel, 'sfx_boot_' + page, player_only)
+            fields.register_option(UIField(
+                name='_sfx_boot_' + page, label='', value='',
+                field_type=UIFieldType.TEXT, private=True,
+                desc=player_only), panel)
+
+        self._broadcast_state()
+
+    # -------------------------------------------------------------- option io
+
+    def _opt(self, name, default=None):
+        try:
+            val = self._rhapi.db.option(name)
+        except Exception:
+            return default
+        return default if val is None or val == '' else val
+
+    def _opt_bool(self, name, default=False):
+        return self._opt(name, default) in (True, 1, '1', 'true', 'True')
+
+    def _volume(self):
+        try:
+            vol = int(float(self._opt(OPT_VOLUME, 100)))
+        except (TypeError, ValueError):
+            vol = 100
+        return max(0, min(100, vol)) / 100.0
+
+    # ----------------------------------------------------------------- files
+
+    def _scan(self):
+        '''Return {'event': {key: fname}, 'pilot': {pilot_id: fname}}.'''
+        out = {'event': {}, 'pilot': {}}
+        try:
+            names = os.listdir(self._sounds_dir)
+        except OSError:
+            return out
+        for fname in names:
+            stem, ext = os.path.splitext(fname)
+            if ext.lower() not in ALLOWED_EXTS:
+                continue
+            if stem.startswith('event_'):
+                out['event'][stem[6:]] = fname
+            elif stem.startswith('pilot_'):
+                try:
+                    out['pilot'][int(stem[6:])] = fname
+                except ValueError:
+                    pass
+        return out
+
+    def _remove_sound(self, kind, key):
+        stem = '{}_{}'.format(kind, key)
+        removed = False
+        for ext in ALLOWED_EXTS:
+            path = os.path.join(self._sounds_dir, stem + ext)
+            if os.path.isfile(path):
+                try:
+                    os.remove(path)
+                    removed = True
+                except OSError:
+                    logger.exception('Sound FX: cannot remove %s', path)
+        return removed
+
+    def _handle_upload(self):
+        if 'file' not in request.files:
+            return jsonify(ok=False, error='no file'), 400
+        upload = request.files['file']
+        kind = request.form.get('kind', '')
+        key = request.form.get('key', '')
+        if kind not in ('event', 'pilot'):
+            return jsonify(ok=False, error='bad kind'), 400
+        if kind == 'event':
+            if key not in [k for k, _e, _l in EVENT_SOUNDS]:
+                return jsonify(ok=False, error='bad event key'), 400
+        else:
+            try:
+                key = str(int(key))
+            except (TypeError, ValueError):
+                return jsonify(ok=False, error='bad pilot id'), 400
+        ext = os.path.splitext(upload.filename or '')[1].lower()
+        if ext not in ALLOWED_EXTS:
+            return jsonify(ok=False,
+                           error='allowed: ' + ', '.join(ALLOWED_EXTS)), 400
+        # size guard (content_length may be absent; re-check after save)
+        if request.content_length and request.content_length > MAX_UPLOAD_BYTES:
+            return jsonify(ok=False, error='file too large'), 400
+
+        self._remove_sound(kind, key)  # drop any older extension variant
+        path = os.path.join(self._sounds_dir, '{}_{}{}'.format(kind, key, ext))
+        try:
+            upload.save(path)
+            if os.path.getsize(path) > MAX_UPLOAD_BYTES:
+                os.remove(path)
+                return jsonify(ok=False, error='file too large'), 400
+        except OSError:
+            logger.exception('Sound FX: failed saving upload %s', path)
+            return jsonify(ok=False, error='save failed'), 500
+        logger.info('Sound FX: uploaded %s', os.path.basename(path))
+        self._broadcast_state()
+        return jsonify(ok=True, file=os.path.basename(path))
+
+    # ----------------------------------------------------------------- state
+
+    def _pilots(self):
+        out = []
+        try:
+            pilots = self._rhapi.db.pilots or []
+        except Exception:
+            pilots = []
+        for pilot in pilots:
+            out.append({
+                'id': pilot.id,
+                'callsign': pilot.callsign or '',
+                'name': pilot.name or '',
+            })
+        out.sort(key=lambda p: (p['callsign'] or p['name']).lower())
+        return out
+
+    def _url(self, fname):
+        return '/sound_fx/audio/{}?v={}'.format(fname, int(time.time()))
+
+    def _state(self):
+        files = self._scan()
+        events = []
+        for key, _evt, label in EVENT_SOUNDS:
+            fname = files['event'].get(key)
+            events.append({'key': key, 'label': label, 'file': fname,
+                           'url': self._url(fname) if fname else None})
+        pilots = []
+        for pilot in self._pilots():
+            fname = files['pilot'].get(pilot['id'])
+            pilot.update({'file': fname,
+                          'url': self._url(fname) if fname else None})
+            pilots.append(pilot)
+        return {
+            'enabled': self._opt_bool(OPT_ENABLED, True),
+            'volume': self._volume(),
+            'events': events,
+            'pilots': pilots,
+        }
+
+    def _broadcast_state(self):
+        try:
+            self._rhapi.ui.socket_broadcast(MSG_STATE, self._state())
+        except Exception:
+            logger.exception('Sound FX: state broadcast failed')
+
+    # --------------------------------------------------------------- socket
+
+    def on_get_state(self, _data=None):
+        self._broadcast_state()
+
+    def on_delete(self, data=None):
+        data = data or {}
+        kind = data.get('kind')
+        key = data.get('key')
+        if kind in ('event', 'pilot') and key is not None:
+            self._remove_sound(kind, key)
+            self._broadcast_state()
+
+    def on_test(self, data=None):
+        data = data or {}
+        kind = data.get('kind')
+        key = data.get('key')
+        files = self._scan()
+        fname = None
+        if kind == 'event':
+            fname = files['event'].get(key)
+        elif kind == 'pilot':
+            try:
+                fname = files['pilot'].get(int(key))
+            except (TypeError, ValueError):
+                fname = None
+        if fname:
+            self._play(fname, 'test:{}:{}'.format(kind, key), force=True)
+
+    # --------------------------------------------------------------- events
+
+    def _pilot_file(self, files, pilot_id):
+        if pilot_id in (None, 0):
+            return None
+        try:
+            return files['pilot'].get(int(pilot_id))
+        except (TypeError, ValueError):
+            return None
+
+    def _handle_event(self, evt_key, pilot_id=None):
+        if not self._opt_bool(OPT_ENABLED, True):
+            return
+        files = self._scan()
+        played_pilot = False
+        trigger_opt = PILOT_TRIGGER_OPTS.get(evt_key)
+        if trigger_opt and self._opt_bool(trigger_opt,
+                                          trigger_opt != OPT_PILOT_ON_DONE):
+            fname = self._pilot_file(files, pilot_id)
+            if fname:
+                self._play(fname, 'pilot:{}'.format(pilot_id))
+                played_pilot = True
+        if played_pilot and self._opt_bool(OPT_PILOT_REPLACES, True):
+            return
+        fname = files['event'].get(evt_key)
+        if fname:
+            self._play(fname, 'event:' + evt_key)
+
+    def on_lap_recorded(self, args=None):
+        args = args or {}
+        pilot_id = args.get('pilot_id')
+        lap = args.get('lap')
+        lap_number = getattr(lap, 'lap_number', None)
+        if lap_number is None and isinstance(lap, dict):
+            lap_number = lap.get('lap_number')
+        evt_key = 'holeshot' if lap_number == 0 else 'lap'
+        self._handle_event(evt_key, pilot_id)
+
+    def on_race_win(self, args=None):
+        args = args or {}
+        pilot_id = None
+        win_status = args.get('win_status') or {}
+        data = win_status.get('data') or {}
+        if isinstance(data, dict):
+            pilot_id = data.get('pilot_id')
+        self._handle_event('win', pilot_id)
+
+    def on_pilot_done(self, args=None):
+        args = args or {}
+        self._handle_event('pilot_done', args.get('pilot_id'))
+
+    def make_simple_handler(self, evt_key):
+        def handler(_args=None):
+            self._handle_event(evt_key)
+        return handler
+
+    def on_pilot_delete(self, args=None):
+        args = args or {}
+        pilot_id = args.get('pilot_id')
+        if pilot_id is not None:
+            self._remove_sound('pilot', pilot_id)
+            self._broadcast_state()
+
+    def on_pilot_alter(self, _args=None):
+        self._broadcast_state()
+
+    def on_option_set(self, args=None):
+        args = args or {}
+        if str(args.get('option', '')).startswith('sfx_'):
+            self._broadcast_state()
+
+    # -------------------------------------------------------------- playback
+
+    def _play(self, fname, dedupe_key, force=False):
+        now = time.monotonic()
+        if not force and now - self._last_play.get(dedupe_key, 0) < 0.4:
+            return
+        self._last_play[dedupe_key] = now
+        payload = {
+            'url': self._url(fname),
+            'file': fname,
+            'volume': self._volume(),
+            'key': dedupe_key,
+            'ts': int(time.time() * 1000),
+        }
+        try:
+            self._rhapi.ui.socket_broadcast(MSG_PLAY, payload)
+        except Exception:
+            logger.exception('Sound FX: play broadcast failed')
+        if self._opt_bool(OPT_SERVER_PLAYBACK, False):
+            self._play_on_server(os.path.join(self._sounds_dir, fname))
+
+    _server_players = (
+        ('mpg123', ['-q']),
+        ('mpg321', ['-q']),
+        ('ffplay', ['-nodisp', '-autoexit', '-loglevel', 'quiet']),
+        ('cvlc', ['--play-and-exit', '--quiet']),
+        ('omxplayer', []),
+    )
+
+    def _play_on_server(self, path):
+        for player, player_args in self._server_players:
+            exe = shutil.which(player)
+            if not exe:
+                continue
+            if player.startswith('mpg') and not path.lower().endswith('.mp3'):
+                continue  # mpg123/321 decode mp3 only
+            try:
+                subprocess.Popen([exe] + player_args + [path],
+                                 stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+            except OSError:
+                logger.exception('Sound FX: server playback failed (%s)', player)
+            return
+        logger.warning('Sound FX: no audio player found on server '
+                       '(tried mpg123, mpg321, ffplay, cvlc, omxplayer)')
+
+
+# Minimal standalone player page: open http://<timer>/sound_fx/player on any
+# device with speakers. One tap enables audio (browser autoplay policy).
+PLAYER_PAGE = '''<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RotorHazard Sound FX player</title>
+<style>
+  body { margin:0; font-family:system-ui,sans-serif; background:#14181d;
+         color:#e8edf2; display:flex; min-height:100vh; align-items:center;
+         justify-content:center; flex-direction:column; gap:24px; }
+  #arm { font-size:1.4em; padding:20px 44px; border-radius:12px; border:0;
+         background:#2f81f7; color:#fff; cursor:pointer; }
+  #arm.armed { background:#238636; }
+  #log { font-size:.95em; color:#9aa6b2; max-width:90vw; text-align:center;
+         min-height:3em; white-space:pre-line; }
+</style>
+</head>
+<body>
+<h2>RotorHazard &mdash; Sound FX player</h2>
+<button id="arm">Tap to enable audio</button>
+<div id="log">Waiting&hellip;</div>
+<script src="/static/socket.io-4.6.1/socket.io.min.js"
+        onerror="document.getElementById('log').textContent='socket.io not found on this server version'"></script>
+<script src="/sound_fx/static/sound_fx.js"></script>
+</body>
+</html>
+'''
