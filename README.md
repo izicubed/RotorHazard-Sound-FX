@@ -9,7 +9,7 @@ name + lap number on every pass, "next group" announcements with each
 pilot's name and channel, countdowns to a scheduled race start and to the
 end of a timed race. A **Run-page panel** shows a status lamp, the phrase
 being spoken with a mini player (progress bar, play / pause / stop), a live
-queue feed and a playback-speed slider.
+queue feed and playback-speed / volume sliders.
 
 Sounds are uploaded straight from the RotorHazard **Settings** page and play
 in **every connected browser**. A standalone player page turns any phone,
@@ -84,6 +84,8 @@ No extra Python dependencies.
   - **live feed** — phrases waiting in the queue; a spoken phrase
     disappears and the next one moves onto the player bar;
   - **speed slider** — 0.5×–2× playback rate for all players (persisted);
+  - **volume slider** — 0–100 % playback volume for all players, live
+    while dragging (persisted, same value as *Volume* in Settings);
   - **SFX ON/OFF** master switch and the announcement buttons.
 
 - **Where it plays**
