@@ -88,7 +88,18 @@
 	display: flex; align-items: center; gap: 6px; padding: 5px 9px;
 	background: var(--sfx-head-bg); border-bottom: 1px solid var(--sfx-edge);
 	cursor: pointer; user-select: none;
+	/* SHARED SLIM-BAR GEOMETRY — identical in every panel of ours so all of
+	   them are exactly the same height when collapsed: 18px header row +
+	   2 x 5px padding + 2 x 1px panel border = 30px. */
 	min-height: 18px; box-sizing: content-box;
+}
+/* Nothing in the header may be taller than that 18px row. RotorHazard's
+   global `button, select { min-height: 2em; box-sizing: border-box }` would
+   otherwise size a header control at 2x its own font-size (e.g. 22px for an
+   11px button) and silently make this panel taller than its neighbours. */
+#rh-sfx .rh-sfx-head button, #rh-sfx .rh-sfx-head select {
+	min-height: 0; height: 18px; line-height: 1;
+	box-sizing: border-box; padding-top: 0; padding-bottom: 0;
 }
 #rh-sfx.rh-sfx-collapsed .rh-sfx-body { display: none; }
 #rh-sfx.rh-sfx-collapsed .rh-sfx-head { border-bottom: none; }
@@ -156,7 +167,7 @@
 #rh-sfx .rh-sfx-custom { display: contents; }
 
 /* speaker toggle in the header (visible even when collapsed) */
-#rh-sfx .rh-sfx-mute { font-size: 11px; line-height: 1.3; padding: 1px 5px;
+#rh-sfx .rh-sfx-mute { font-size: 11px; line-height: 1; padding: 0 5px;
 	cursor: pointer; background: transparent; border: 1px solid transparent;
 	border-radius: 5px; color: var(--sfx-fg); }
 #rh-sfx .rh-sfx-mute:hover { border-color: var(--sfx-btn-border);
