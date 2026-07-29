@@ -153,10 +153,11 @@
 #rh-sfx .rh-sfx-ctl2 { display: flex; align-items: center; gap: 6px;
 	padding: 7px 9px 2px; flex-wrap: wrap; }
 #rh-sfx .rh-sfx-rlbl { font-size: 10px; color: var(--sfx-muted); }
-#rh-sfx .rh-sfx-rate { width: 90px; accent-color: var(--sfx-bar); }
-#rh-sfx .rh-sfx-rval { font-size: 10px; font-weight: 700;
-	color: var(--sfx-accent); font-variant-numeric: tabular-nums;
-	min-width: 34px; }
+#rh-sfx .rh-sfx-rate, #rh-sfx .rh-sfx-vol { width: 80px;
+	accent-color: var(--sfx-bar); }
+#rh-sfx .rh-sfx-rval, #rh-sfx .rh-sfx-vval { font-size: 10px;
+	font-weight: 700; color: var(--sfx-accent);
+	font-variant-numeric: tabular-nums; min-width: 34px; }
 #rh-sfx .rh-sfx-flex { flex: 1 1 auto; }
 
 /* announcement buttons live on their own wrapping row; `contain` keeps the

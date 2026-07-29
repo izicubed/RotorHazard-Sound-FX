@@ -537,6 +537,17 @@ class SoundFxController:
             except Exception:
                 logger.exception('Sound FX: cannot store rate')
             self._broadcast(MSG_CTL, {'action': 'rate', 'rate': rate / 100.0})
+        elif action == 'volume':
+            try:
+                vol = int(float(data.get('volume', 100)))
+            except (TypeError, ValueError):
+                return
+            vol = max(0, min(100, vol))
+            try:
+                self._rhapi.db.option_set(OPT_VOLUME, vol)
+            except Exception:
+                logger.exception('Sound FX: cannot store volume')
+            self._broadcast(MSG_CTL, {'action': 'volume', 'volume': vol / 100.0})
 
     def on_set_enabled(self, data=None):
         data = data or {}

@@ -119,6 +119,7 @@
 	var current = null;    // {item, idx, audios, durs}
 	var paused = false;
 	var rate = 1.0;
+	var vol = 1.0;
 	var ticker = null;
 
 	function phraseTotal(cur) {
@@ -159,8 +160,7 @@
 		if (!cur) { return; }
 		if (cur.idx >= cur.audios.length) { finishPhrase(); return; }
 		var a = cur.audios[cur.idx];
-		a.volume = (typeof cur.item.volume === 'number') ?
-			Math.max(0, Math.min(1, cur.item.volume)) : 1;
+		a.volume = vol;
 		a.playbackRate = rate;
 		a.muted = !audible();
 		a.onended = function () {
@@ -261,6 +261,16 @@
 		renderPanel();
 	}
 
+	function applyVolume(v) {
+		if (typeof v !== 'number' || isNaN(v)) { return; }
+		vol = Math.max(0, Math.min(1, v));
+		if (current) {
+			var a = current.audios[current.idx];
+			if (a) { a.volume = vol; }
+		}
+		renderPanel();
+	}
+
 	function unlock() {
 		if (unlocked) { return; }
 		unlocked = true;
@@ -294,6 +304,7 @@
 		else if (msg.action === 'resume') { doResume(); }
 		else if (msg.action === 'stop') { doStop(); }
 		else if (msg.action === 'rate') { applyRate(msg.rate); }
+		else if (msg.action === 'volume') { applyVolume(msg.volume); }
 	});
 	socket.on('connect', function () {
 		socket.emit('sfx_get_state', {});
@@ -301,6 +312,7 @@
 	socket.on('sfx_state', function (s) {
 		state = s || null;
 		if (state && typeof state.rate === 'number') { applyRate(state.rate); }
+		if (state && typeof state.volume === 'number') { applyVolume(state.volume); }
 		renderManager();
 		renderPanel();
 	});
@@ -417,6 +429,9 @@
 			'<span class="rh-sfx-rlbl" title="Playback speed">speed</span>' +
 			'<input class="rh-sfx-rate" type="range" min="50" max="200" step="5">' +
 			'<span class="rh-sfx-rval"></span>' +
+			'<span class="rh-sfx-rlbl" title="Playback volume on every player">vol</span>' +
+			'<input class="rh-sfx-vol" type="range" min="0" max="100" step="5">' +
+			'<span class="rh-sfx-vval"></span>' +
 			'<span class="rh-sfx-flex"></span>' +
 			'<button class="rh-sfx-btn rh-sfx-benable"></button></div>' +
 			'<div class="rh-sfx-anns">' +
@@ -450,6 +465,15 @@
 		});
 		slider.addEventListener('change', function () {
 			socket.emit('sfx_ctl', { action: 'rate', rate: parseInt(slider.value, 10) });
+		});
+		var vslider = panel.querySelector('.rh-sfx-vol');
+		vslider.addEventListener('input', function () {
+			// live feedback while dragging; persisted on release
+			applyVolume(vslider.value / 100);
+			panel.querySelector('.rh-sfx-vval').textContent = vslider.value + '%';
+		});
+		vslider.addEventListener('change', function () {
+			socket.emit('sfx_ctl', { action: 'volume', volume: parseInt(vslider.value, 10) });
 		});
 		panel.querySelectorAll('.rh-sfx-bann').forEach(function (b) {
 			b.addEventListener('click', function () {
@@ -582,12 +606,17 @@
 		panel.querySelector('.rh-sfx-bplay').classList.toggle('rh-sfx-active', !paused);
 		panel.querySelector('.rh-sfx-bpause').classList.toggle('rh-sfx-active', paused);
 
-		// speed slider (do not fight the user mid-drag)
+		// speed / volume sliders (do not fight the user mid-drag)
 		var slider = panel.querySelector('.rh-sfx-rate');
 		if (document.activeElement !== slider) {
 			slider.value = Math.round(rate * 100);
 		}
 		panel.querySelector('.rh-sfx-rval').textContent = rate.toFixed(2) + '×';
+		var vslider = panel.querySelector('.rh-sfx-vol');
+		if (document.activeElement !== vslider) {
+			vslider.value = Math.round(vol * 100);
+		}
+		panel.querySelector('.rh-sfx-vval').textContent = Math.round(vol * 100) + '%';
 
 		// announce buttons: disabled when no sound file is uploaded
 		panel.querySelectorAll('.rh-sfx-bann').forEach(function (b) {
@@ -709,7 +738,7 @@
 				// page too, where the queue player is always muted
 				stopPreview();
 				var a = new Audio(item.url);
-				a.volume = state ? state.volume : 1;
+				a.volume = vol;
 				a.playbackRate = rate;
 				a.onended = function () {
 					if (previewAudio === a) { previewAudio = null; }
